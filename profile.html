@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Profile</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/supabase.min.js"></script>
+  <script src="supabase.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card center">
+      <img id="pfAvatar" class="avatar" src="" style="display:none"/>
+      <h1 id="pfName">@username</h1>
+      <p id="pfBio" class="small"></p>
+      <div id="pfLinks" style="margin-top:12px"></div>
+      <p style="margin-top:10px"><a class="smalllink" href="/index.html">Back to login</a></p>
+    </div>
+  </div>
+
+  <script>
+    const db = window.db;
+    function getUsernameFromPath(){ 
+      const params = new URLSearchParams(location.search);
+      if(params.get('u')) return params.get('u');
+      const parts = location.pathname.split('/').filter(Boolean);
+      if(parts.length>=2 && parts[0]==='u') return parts[1];
+      return null;
+    }
+
+    async function init(){
+      const username = getUsernameFromPath();
+      if(!username) return document.getElementById('pfName').textContent='No username provided';
+      document.getElementById('pfName').textContent='@'+username;
+      const { data: profile } = await db.from('profiles').select('id,username,full_name,avatar_url').eq('username', username).single();
+      if(!profile){ document.getElementById('pfBio').textContent='User not found'; return; }
+      if(profile.avatar_url){ document.getElementById('pfAvatar').src = profile.avatar_url; document.getElementById('pfAvatar').style.display='block'; }
+      if(profile.full_name) document.getElementById('pfName').textContent = profile.full_name + ' ('+profile.username+')';
+      const { data: links } = await db.from('links').select('title,url').eq('user_id', profile.id).order('created_at', { ascending:false });
+      const container = document.getElementById('pfLinks');
+      container.innerHTML='';
+      (links||[]).forEach(l=>{
+        const a = document.createElement('a');
+        a.className='link-btn';
+        a.href = l.url;
+        a.target='_blank';
+        a.textContent = l.title;
+        container.appendChild(a);
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>

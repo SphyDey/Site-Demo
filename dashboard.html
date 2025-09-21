@@ -1,0 +1,123 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/supabase.min.js"></script>
+  <script src="supabase.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="profile-header">
+        <img id="avatarImg" class="avatar" src="" alt="avatar" style="display:none">
+        <div style="flex:1">
+          <h1 id="who">My Dashboard</h1>
+          <p class="small" id="emailText"></p>
+        </div>
+        <div>
+          <button id="btnLogout" class="small">Logout</button>
+        </div>
+      </div>
+
+      <hr style="opacity:0.06;margin:12px 0">
+      <h3>Profile</h3>
+      <input id="username" type="text" placeholder="public username (unique)"/>
+      <div class="small">Upload avatar (optional)</div>
+      <input id="avatarFile" type="file" accept="image/*" />
+      <div style="margin-top:8px" class="controls">
+        <button id="saveProfile">Save Profile</button>
+      </div>
+
+      <hr style="opacity:0.06;margin:12px 0">
+      <h3>Your Links</h3>
+      <input id="title" type="text" placeholder="Button title (e.g. Instagram)" />
+      <input id="url" type="url" placeholder="https://example.com" />
+      <div class="row" style="margin-bottom:8px">
+        <button id="addLink">Add Link</button>
+      </div>
+
+      <ul id="linksList" style="list-style:none;padding:0;margin:0"></ul>
+    </div>
+  </div>
+
+  <script>
+    const db = window.db;
+    let currentUser = null;
+    async function init(){
+      const s = await db.auth.getSession();
+      currentUser = s.data.session?.user || null;
+      if(!currentUser) return location.href = '/index.html';
+      document.getElementById('emailText').textContent = currentUser.email;
+      loadProfile();
+      loadLinks();
+    }
+
+    async function loadProfile(){
+      const { data, error } = await db.from('profiles').select('username, avatar_url').eq('id', currentUser.id).single();
+      if(data){
+        document.getElementById('username').value = data.username || '';
+        if(data.avatar_url){
+          document.getElementById('avatarImg').src = data.avatar_url; document.getElementById('avatarImg').style.display='block';
+        }
+      }
+    }
+
+    async function saveProfile(){
+      const username = document.getElementById('username').value.trim();
+      const update = { id: currentUser.id, username };
+      const fileInput = document.getElementById('avatarFile');
+      if(fileInput.files.length){
+        const file = fileInput.files[0];
+        const path = 'avatars/' + currentUser.id + '/' + Date.now() + '_' + file.name;
+        const { error: upErr } = await db.storage.from('avatars').upload(path, file, { upsert: true });
+        if(upErr){
+          alert('Avatar upload error: ' + upErr.message);
+        } else {
+          const { data: urlData } = db.storage.from('avatars').getPublicUrl(path);
+          update.avatar_url = urlData.publicUrl;
+          document.getElementById('avatarImg').src = urlData.publicUrl; document.getElementById('avatarImg').style.display='block';
+        }
+      }
+      const { error } = await db.from('profiles').upsert(update);
+      if(error) alert('Profile save error: ' + error.message);
+      else alert('Profile saved! Public page: ' + location.origin + '/u/' + encodeURIComponent(username));
+    }
+
+    async function addLink(){
+      const title = document.getElementById('title').value.trim();
+      const url = document.getElementById('url').value.trim();
+      if(!title || !url) return alert('title and url required');
+      const { error } = await db.from('links').insert([{ user_id: currentUser.id, title, url }]);
+      if(error) return alert('Insert error: ' + error.message);
+      document.getElementById('title').value=''; document.getElementById('url').value='';
+      loadLinks();
+    }
+
+    async function loadLinks(){
+      const { data } = await db.from('links').select('id,title,url').eq('user_id', currentUser.id).order('created_at', { ascending:false });
+      const ul = document.getElementById('linksList');
+      ul.innerHTML='';
+      (data||[]).forEach(l => {
+        const li = document.createElement('li');
+        li.innerHTML = '<a class="link-btn" href="'+escapeHtml(l.url)+'" target="_blank">'+escapeHtml(l.title)+'</a> <button class="danger" data-id="'+l.id+'">Delete</button>';
+        ul.appendChild(li);
+      });
+      ul.querySelectorAll('button.danger').forEach(btn=> btn.addEventListener('click', async ()=>{
+        const id = btn.getAttribute('data-id');
+        await db.from('links').delete().eq('id', id);
+        loadLinks();
+      }));
+    }
+
+    function escapeHtml(s){ return String(s).replace(/[&<>"']/g, (m)=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;" })[m]); }
+
+    document.getElementById('btnLogout').onclick = async ()=>{ await db.auth.signOut(); location.href='/index.html'; };
+    document.getElementById('saveProfile').onclick = saveProfile;
+    document.getElementById('addLink').onclick = addLink;
+
+    init();
+  </script>
+</body>
+</html>
